@@ -1,5 +1,6 @@
 CC := g++
-CFLAGS := -Wextra -Wall -pedantic -Wno-write-strings
+CFLAGS := -Wextra -Wall -Wno-write-strings -Wno-unused-function -Wno-unused-variable
+LIBS := -luser32 -lgdi32
 
 RES_DIR := res
 SRC_DIR := src
@@ -14,7 +15,7 @@ $(BUILD_DIR):
 	mkdir $@
 
 $(BUILD_DIR)/$(EXEC): $(SRC_DIR)/chip8.cpp
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
 
 .PHONY: run
 run: all
