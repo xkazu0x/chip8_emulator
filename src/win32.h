@@ -1,5 +1,5 @@
-#ifndef EXCALIBUR_WIN32_H
-#define EXCALIBUR_WIN32_H
+#ifndef WIN32_H
+#define WIN32_H
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -14,8 +14,8 @@ struct win32_t {
     WINDOWPLACEMENT window_placement;
 };
 
-internal vec2i win32_get_window_size(HWND window);
+internal os_window_size_t win32_get_window_size(HWND window);
 internal void win32_window_toggle_fullscreen(HWND window, WINDOWPLACEMENT *placement);
 internal LRESULT CALLBACK win32_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 
-#endif // EXCALIBUR_WIN32_H
+#endif // WIN32_H

@@ -1,5 +1,5 @@
-#ifndef EXCALIBUR_BASE_H
-#define EXCALIBUR_BASE_H
+#ifndef BASE_H
+#define BASE_H
 
 #if defined(__clang__)
 #define COMPILER_CLANG 1
@@ -114,7 +114,7 @@
 #define STMNT(x) do { x } while(0)
 #define ASSERT_BREAK() (*(int *)0 = 0)
 
-#ifdef EXCALIBUR_DEBUG
+#if ENABLE_DEBUG || _DEBUG
 #define ASSERT(x) STMNT(if (!(x)) { ASSERT_BREAK(); })
 #else
 #define ASSERT(x)
@@ -127,13 +127,10 @@
 #define GIGABYTES(x) (MEGABYTES(x)*1024LL)
 #define TERABYTES(x) (GIGABYTES(x)*1024LL)
 
-#define ARRAY_COUNT(x) (sizeof(x)/sizeof(*(x)))
-
 #define MIN(a, b) ((a < b) ? (a) : (b))
 #define MAX(a, b) ((a > b) ? (a) : (b))
 
-#define EX_FALSE 0
-#define EX_TRUE 1
+#define ARRAY_COUNT(x) (sizeof(x)/sizeof(*(x)))
 
 #define global static
 #define local static
@@ -184,6 +181,36 @@ global f32 f32_min = -FLT_MAX;
 global f32 pi32 = 3.14159265359f;
 global f64 pi64 = 3.14159265359;
 
+// TODO(xkazu0x): maybe put these functions on the math header??
+internal inline f32 abs_f32(f32 x);
+internal inline f32 cos_f32(f32 x);
+internal inline f32 sin_f32(f32 x);
+internal inline f32 tan_f32(f32 x);
+
+internal inline f32 square_root(f32 x);
+internal inline f32 square(f32 x);
+
+internal inline s32 ceil_f32_to_s32(f32 x);
+internal inline s32 floor_f32_to_s32(f32 x);
+
+internal inline s32 round_f32_to_s32(f32 x);
+internal inline u32 round_f32_to_u32(f32 x);
+
+internal inline s32 truncate_f32_to_s32(f32 x);
+internal inline u32 truncate_f32_to_u32(f32 x);
+
+internal inline s32 sign_of(s32 x);
+
+internal inline u32 rotate_left(u32 value, s32 amount);
+internal inline u32 rotate_right(u32 value, s32 amount);
+
+struct bit_scan_result_t {
+    b32 found;
+    u32 index;
+};
+
+internal inline bit_scan_result_t find_least_significant_set_bit(u32 value);
+
 enum operating_system_t {
     OPERATING_SYSTEM_UNDEFINED,
     OPERATING_SYSTEM_WINDOWS,
@@ -207,4 +234,12 @@ internal architecture_t architecture_from_context(void);
 internal char *string_from_operating_system(operating_system_t os);
 internal char *string_from_architecture(architecture_t arch);
 
-#endif // EXCALIBUR_BASE_H
+internal void _print(char *message, ...);
+
+#if ENABLE_DEBUG || _DEBUG
+#define print(message, ...) _print(message, ##__VA_ARGS__);
+#else
+#define print(message, ...)
+#endif
+
+#endif // BASE_H
