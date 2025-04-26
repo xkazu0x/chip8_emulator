@@ -6,7 +6,7 @@
 #endif
 #include <windows.h>
 
-struct win32_t {
+struct window_win32_t {
     HMODULE window_instance;
     ATOM window_atom;
     HWND window_handle;
@@ -14,8 +14,8 @@ struct win32_t {
     WINDOWPLACEMENT window_placement;
 };
 
-internal os_window_size_t win32_get_window_size(HWND window);
-internal void win32_window_toggle_fullscreen(HWND window, WINDOWPLACEMENT *placement);
+internal window_size_t win32_get_window_size(HWND window);
+internal void win32_toggle_window_fullscreen(HWND window, WINDOWPLACEMENT *placement);
 internal LRESULT CALLBACK win32_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 
 #endif // WIN32_H

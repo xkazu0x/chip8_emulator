@@ -20,7 +20,7 @@ $(BUILD_DIR)/$(EXEC): $(SRC_DIR)/chip8.cpp
 
 .PHONY: run
 run: all
-	$(BUILD_DIR)/$(EXEC) $(RES_DIR)/test_opcode.ch8
+	$(BUILD_DIR)/$(EXEC) "$(RES_DIR)/BC_test.ch8"
 
 .PHONY: clean
 clean:

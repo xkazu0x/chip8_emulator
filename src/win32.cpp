@@ -1,20 +1,17 @@
-/////////////////////////////////
-// NOTE(xkazu0x): win32 functions
-
-internal os_window_size_t
+internal window_size_t
 win32_get_window_size(HWND window) {
     RECT client_rectangle;
     GetClientRect(window, &client_rectangle);
     
-    os_window_size_t result;
-    result.x = client_rectangle.right - client_rectangle.left;
-    result.y = client_rectangle.bottom - client_rectangle.top;
+    window_size_t result;
+    result.width = client_rectangle.right - client_rectangle.left;
+    result.height = client_rectangle.bottom - client_rectangle.top;
 
     return(result);
 }
 
 internal void
-win32_window_toggle_fullscreen(HWND window, WINDOWPLACEMENT *placement) {
+win32_toggle_window_fullscreen(HWND window, WINDOWPLACEMENT *placement) {
     DWORD window_style = GetWindowLong(window, GWL_STYLE);
     if (window_style & WS_OVERLAPPEDWINDOW) {
         MONITORINFO monitor_info = {};
@@ -52,15 +49,12 @@ win32_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     return(result);
 }
 
-/////////////////////////////////////////
-// NOTE(xkazu0x): system window functions
+internal window_t
+create_window(char *title, s32 width, s32 height) {
+    window_t window = {};
+    window.platform = VirtualAlloc(0, sizeof(window_win32_t), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 
-internal os_window_t
-os_window_create(char *title, s32 width, s32 height) {
-    os_window_t window = {};
-    window.platform = VirtualAlloc(0, sizeof(win32_t), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-
-    win32_t *platform = (win32_t *)window.platform;
+    window_win32_t *platform = (window_win32_t *)window.platform;
     platform->window_instance = GetModuleHandleA(0);
     
     DEVMODE monitor_info;
@@ -100,7 +94,7 @@ os_window_create(char *title, s32 width, s32 height) {
     window_class.hCursor = LoadCursor(0, IDC_ARROW);
     window_class.hbrBackground = 0;
     window_class.lpszMenuName = 0;
-    window_class.lpszClassName = "CHIP8_WINDOW_CLASS";
+    window_class.lpszClassName = "chip8_window_class";
     platform->window_atom = RegisterClassA(&window_class);
     if (platform->window_atom) {
         platform->window_handle = CreateWindowExA(window_style_ex, MAKEINTATOM(platform->window_atom), window_title,
@@ -111,30 +105,80 @@ os_window_create(char *title, s32 width, s32 height) {
         }
     }
     
-    RAWINPUTDEVICE raw_input_device = {};
-    raw_input_device.usUsagePage = 0x01;
-    raw_input_device.usUsage = 0x02;
-    raw_input_device.hwndTarget = platform->window_handle;
-    if (!RegisterRawInputDevices(&raw_input_device, 1, sizeof(raw_input_device))) {
-        print("failed to register mouse as raw input device\n");
-    }
-    
     return(window);
 }
 
 internal void
-os_window_destroy(os_window_t *window) {
-    win32_t *platform = (win32_t *)window->platform;
+destroy_window(window_t *window) {
+    window_win32_t *platform = (window_win32_t *)window->platform;
     UnregisterClassA(MAKEINTATOM(platform->window_atom), platform->window_instance);
     DestroyWindow(platform->window_handle);
     VirtualFree(platform, 0, MEM_RELEASE);
 }
 
 internal void
-os_window_update(os_window_t *window) {
-    win32_t *platform = (win32_t *)window->platform;
-    input_t *input = &window->input;
+update_window_events(window_t *window) {
+    MSG message;
+    while (PeekMessageA(&message, 0, 0, 0, PM_REMOVE)) {
+        switch (message.message) {
+            case WM_QUIT: {
+                window->should_quit = true;
+            } break;
+            default: {
+                TranslateMessage(&message);
+                DispatchMessageA(&message);
+            }
+        }
+    }    
+}
 
+internal void
+toggle_window_fullscreen(window_t *window) {
+    window_win32_t *platform = (window_win32_t *)window->platform;
+    win32_toggle_window_fullscreen(platform->window_handle, &platform->window_placement);
+}
+
+internal window_size_t
+get_window_size(window_t *window) {
+    window_win32_t *platform = (window_win32_t *)window->platform;
+    window_size_t result = win32_get_window_size(platform->window_handle);
+    return(result);
+}
+
+internal input_t
+create_input(window_t *window) {
+    window_win32_t *platform = (window_win32_t *)window->platform;
+    input_t input = {};
+    
+    RAWINPUTDEVICE raw_input_device = {};
+    raw_input_device.usUsagePage = 0x01;
+    raw_input_device.usUsage = 0x02;
+    raw_input_device.hwndTarget = platform->window_handle;
+    // TODO(xkazu0x): find another way to handle error
+    if (!RegisterRawInputDevices(&raw_input_device, 1, sizeof(raw_input_device))) {
+        print("failed to register mouse as raw input device\n");
+    }
+
+    return(input);
+}
+
+internal void
+input_process_digital_button(digital_button_t *button, b32 down) {
+    b32 was_down = button->down;
+    button->pressed = !was_down && down;
+    button->released = was_down && !down;
+    button->down = down;
+}
+
+internal void
+update_window_events(window_t *window, input_t *input) {
+    window_win32_t *platform = (window_win32_t *)window->platform;
+    
+    for (u32 i = 0; i < KEY_MAX; i++) {
+        input->keyboard[i].pressed = false;
+        input->keyboard[i].released = false;
+    }
+    
     input->mouse.left.pressed = false;
     input->mouse.left.released = false;
     input->mouse.right.pressed = false;
@@ -153,7 +197,17 @@ os_window_update(os_window_t *window) {
     while (PeekMessageA(&message, 0, 0, 0, PM_REMOVE)) {
         switch (message.message) {
             case WM_QUIT: {
-                window->quit = true;
+                window->should_quit = true;
+            } break;
+            case WM_SYSKEYDOWN:
+            case WM_SYSKEYUP:
+            case WM_KEYDOWN:
+            case WM_KEYUP: {
+                u32 key_code = (u32)message.wParam;
+                b32 down = ((message.lParam & (1 << 31)) == 0);
+                input_process_digital_button(&input->keyboard[key_code], down);
+                TranslateMessage(&message);
+                DispatchMessageA(&message);
             } break;
             case WM_INPUT: {
                 UINT size;
@@ -169,27 +223,27 @@ os_window_update(os_window_t *window) {
                         b32 left_button_down = input->mouse.left.down;
                         if (button_flags & RI_MOUSE_LEFT_BUTTON_DOWN) left_button_down = true;
                         if (button_flags & RI_MOUSE_LEFT_BUTTON_UP) left_button_down = false;
-                        os_process_digital_button(&input->mouse.left, left_button_down);
+                        input_process_digital_button(&input->mouse.left, left_button_down);
 
                         b32 right_button_down = input->mouse.right.down;
                         if (button_flags & RI_MOUSE_RIGHT_BUTTON_DOWN) right_button_down = true;
                         if (button_flags & RI_MOUSE_RIGHT_BUTTON_UP) right_button_down = false;
-                        os_process_digital_button(&input->mouse.right, right_button_down);
+                        input_process_digital_button(&input->mouse.right, right_button_down);
                             
                         b32 middle_button_down = input->mouse.middle.down;
                         if (button_flags & RI_MOUSE_MIDDLE_BUTTON_DOWN) middle_button_down = true;
                         if (button_flags & RI_MOUSE_MIDDLE_BUTTON_UP) middle_button_down = false;
-                        os_process_digital_button(&input->mouse.middle, middle_button_down);
+                        input_process_digital_button(&input->mouse.middle, middle_button_down);
 
                         b32 x1_button_down = input->mouse.x1.down;
                         if (button_flags & RI_MOUSE_BUTTON_4_DOWN) x1_button_down = true;
                         if (button_flags & RI_MOUSE_BUTTON_4_UP) x1_button_down = false;
-                        os_process_digital_button(&input->mouse.x1, x1_button_down);
+                        input_process_digital_button(&input->mouse.x1, x1_button_down);
                             
                         b32 x2_button_down = input->mouse.x2.down;
                         if (button_flags & RI_MOUSE_BUTTON_5_DOWN) x2_button_down = true;
                         if (button_flags & RI_MOUSE_BUTTON_5_UP) x2_button_down = false;
-                        os_process_digital_button(&input->mouse.x2, x2_button_down);
+                        input_process_digital_button(&input->mouse.x2, x2_button_down);
                             
                         if (raw_input->data.mouse.usButtonFlags & RI_MOUSE_WHEEL) {
                             input->mouse.dwheel += ((SHORT)raw_input->data.mouse.usButtonData) / WHEEL_DELTA;
@@ -206,13 +260,12 @@ os_window_update(os_window_t *window) {
         }
     }
     
-    BYTE keyboard_state[KEY_MAX];
-    if (!GetKeyboardState(keyboard_state)) return;
-    for (s32 key = 0; key < KEY_MAX; key++) {
-        os_process_digital_button(input->keyboard + key, keyboard_state[key] >> 7);
-    }
-    
-    os_window_size_t window_size = win32_get_window_size(platform->window_handle);
+    // BYTE keyboard_state[KEY_MAX];
+    // if (GetKeyboardState(keyboard_state)) {
+    //     for (s32 key_code = 0; key_code < KEY_MAX; key_code++) {
+    //         input_process_digital_button(input->keyboard + key_code, keyboard_state[key_code] >> 7);
+    //     }
+    // }
         
     input->mouse.wheel += input->mouse.dwheel;
     
@@ -222,38 +275,24 @@ os_window_update(os_window_t *window) {
     
     if (mouse_position.x < 0) mouse_position.x = 0;
     if (mouse_position.y < 0) mouse_position.y = 0;
-    if (mouse_position.x > window_size.x) mouse_position.x = window_size.x;
-    if (mouse_position.y > window_size.y) mouse_position.y = window_size.y;
+
+    window_size_t window_size = win32_get_window_size(platform->window_handle);
+    if (mouse_position.x > window_size.width) mouse_position.x = window_size.width;
+    if (mouse_position.y > window_size.height) mouse_position.y = window_size.height;
 
     input->mouse.x = mouse_position.x;
     input->mouse.y = mouse_position.y;
 }
 
-internal os_window_size_t
-os_window_get_size(os_window_t *window) {
-    win32_t *platform = (win32_t *)window->platform;
-    os_window_size_t result = win32_get_window_size(platform->window_handle);
-    return(result);
-}
-
-internal void
-os_window_toggle_fullscreen(os_window_t *window) {
-    win32_t *platform = (win32_t *)window->platform;
-    win32_window_toggle_fullscreen(platform->window_handle, &platform->window_placement);
-}
-
-///////////////////////////////////////////
-// NOTE(xkazu0x): system renderer functions
-
-internal os_renderer_t
-os_renderer_create(os_window_t *window, s32 width, s32 height) {
-    win32_t *platform = (win32_t *)window->platform;
+internal renderer_t
+create_renderer(window_t *window, s32 width, s32 height) {
+    window_win32_t *platform = (window_win32_t *)window->platform;
     
-    os_renderer_t renderer = {};
+    renderer_t renderer = {};
     renderer.width = width;
     renderer.height = height;
     renderer.bytes_per_pixel = 4;
-    renderer.pitch = renderer.width * renderer.bytes_per_pixel;
+    renderer.pitch = renderer.width*renderer.bytes_per_pixel;
     
     platform->bitmap_info.bmiHeader.biSize = sizeof(platform->bitmap_info.bmiHeader);
     platform->bitmap_info.bmiHeader.biWidth = renderer.width;
@@ -269,7 +308,40 @@ os_renderer_create(os_window_t *window, s32 width, s32 height) {
 }
 
 internal void
-os_renderer_draw_pixel(os_renderer_t *renderer, f32 x, f32 y, vec3 color) {
+renderer_clear(renderer_t *renderer, vec3 color) {
+    u32 out_color = ((round_f32_to_u32(color.r * 255.0f) << 16) |
+                     (round_f32_to_u32(color.g * 255.0f) << 8) |
+                     (round_f32_to_u32(color.b * 255.0f) << 0));
+    
+    u8 *row = (u8 *)renderer->memory;
+    for (s32 y = 0; y < renderer->width; ++y) {
+        u32 *pixel = (u32 *)row;
+        for (s32 x = 0; x < renderer->height; ++x) {
+            *pixel++ = out_color;
+        }
+        row += renderer->pitch;
+    }
+}
+
+internal void
+renderer_present(renderer_t *renderer, window_t *window) {
+    window_win32_t *platform = (window_win32_t *)window->platform;
+    
+    window_size_t window_size = win32_get_window_size(platform->window_handle);
+    HDC window_device = GetDC(platform->window_handle);
+    
+    StretchDIBits(window_device,
+                  0, 0, window_size.width, window_size.height,
+                  0, 0, renderer->width, renderer->height,
+                  renderer->memory,
+                  &platform->bitmap_info,
+                  DIB_RGB_COLORS, SRCCOPY);
+    
+    ReleaseDC(platform->window_handle, window_device);
+}
+
+internal void
+renderer_draw_pixel(renderer_t *renderer, f32 x, f32 y, vec3 color) {
     s32 offset_x = round_f32_to_s32(x);
     s32 offset_y = round_f32_to_s32(y);
 
@@ -291,35 +363,8 @@ os_renderer_draw_pixel(os_renderer_t *renderer, f32 x, f32 y, vec3 color) {
 }
 
 internal void
-os_renderer_clear(os_renderer_t *renderer, vec3 color) {
-    u32 out_color = ((round_f32_to_u32(color.r * 255.0f) << 16) |
-                     (round_f32_to_u32(color.g * 255.0f) << 8) |
-                     (round_f32_to_u32(color.b * 255.0f) << 0));
-    
-    u8 *row = (u8 *)renderer->memory;
-    for (s32 y = 0; y < renderer->width; ++y) {
-        u32 *pixel = (u32 *)row;
-        for (s32 x = 0; x < renderer->height; ++x) {
-            *pixel++ = out_color;
-        }
-        row += renderer->pitch;
-    }
-}
-
-internal void
-os_renderer_present(os_renderer_t *renderer, os_window_t *window) {
-    win32_t *platform = (win32_t *)window->platform;
-    os_window_size_t window_size = win32_get_window_size(platform->window_handle);
-    HDC window_device = GetDC(platform->window_handle);
-    
-    StretchDIBits(window_device,
-                  0, 0, window_size.x, window_size.y,
-                  0, 0, renderer->width, renderer->height,
-                  renderer->memory,
-                  &platform->bitmap_info,
-                  DIB_RGB_COLORS, SRCCOPY);
-    
-    ReleaseDC(platform->window_handle, window_device);
+renderer_draw_pixel(renderer_t *renderer, vec2 position, vec3 color) {
+    renderer_draw_pixel(renderer, position.x, position.y, color);
 }
 
 ///////////////////////////////////////
