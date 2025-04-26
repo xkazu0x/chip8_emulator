@@ -314,9 +314,9 @@ renderer_clear(renderer_t *renderer, vec3 color) {
                      (round_f32_to_u32(color.b * 255.0f) << 0));
     
     u8 *row = (u8 *)renderer->memory;
-    for (s32 y = 0; y < renderer->width; ++y) {
+    for (s32 y = 0; y < renderer->height; ++y) {
         u32 *pixel = (u32 *)row;
-        for (s32 x = 0; x < renderer->height; ++x) {
+        for (s32 x = 0; x < renderer->width; ++x) {
             *pixel++ = out_color;
         }
         row += renderer->pitch;
@@ -367,24 +367,21 @@ renderer_draw_pixel(renderer_t *renderer, vec2 position, vec3 color) {
     renderer_draw_pixel(renderer, position.x, position.y, color);
 }
 
-///////////////////////////////////////
-// NOTE(xkazu0x): system time functions
-
 internal s64
-os_get_ticks_per_frame() {
+get_performance_frequency() {
     LARGE_INTEGER large_integer;
     QueryPerformanceFrequency(&large_integer);
     return(large_integer.QuadPart);
 }
 
 internal s64
-os_get_time() {
+get_performance_counter() {
     LARGE_INTEGER result;
     QueryPerformanceCounter(&result);
     return(result.QuadPart);
 }
 
 internal void
-os_sleep_ms(u32 ms) {
+sleep(u32 ms) {
     Sleep(ms);
 }

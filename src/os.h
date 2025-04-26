@@ -135,8 +135,8 @@ internal void renderer_present(renderer_t *renderer, window_t *window);
 internal void renderer_draw_pixel(renderer_t *renderer, f32 x, f32 y, vec3 color);
 internal void renderer_draw_pixel(renderer_t *renderer, vec2 position, vec3 color);
 
-internal s64 os_get_ticks_per_frame();
-internal s64 os_get_time();
-internal void os_sleep_ms(u32 ms);
+internal s64 get_performance_frequency();
+internal s64 get_performance_counter();
+internal void sleep(u32 ms);
 
 #endif // OS_H

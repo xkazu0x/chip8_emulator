@@ -1,6 +1,6 @@
 CC := g++
 CFLAGS := -O0 -g -Wextra -Wall -Wno-write-strings -Wno-unused-function -Wno-unused-variable
-DEFINES := -DENABLE_DEBUG=1
+DEFINES := -DENABLE_DEBUG=0
 LIBS := -luser32 -lgdi32
 
 RES_DIR := res
@@ -20,7 +20,7 @@ $(BUILD_DIR)/$(EXEC): $(SRC_DIR)/chip8.cpp
 
 .PHONY: run
 run: all
-	$(BUILD_DIR)/$(EXEC) "$(RES_DIR)/BC_test.ch8"
+	$(BUILD_DIR)/$(EXEC) "$(RES_DIR)/tetris.ch8"
 
 .PHONY: clean
 clean:

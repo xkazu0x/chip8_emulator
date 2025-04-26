@@ -16,9 +16,7 @@
 #define WINDOW_WIDTH WINDOW_SCALE*RENDER_WIDTH
 #define WINDOW_HEIGHT WINDOW_SCALE*RENDER_HEIGHT
 
-// TODO(xkazu0x): make a config flags for CHIP8 and SCHIP
-// TODO(xkazu0x): delay timer
-// TODO(xkazu0x): sound timer
+// TODO(xkazu0x): sound
 
 struct instruction_t {
     u16 opcode;
@@ -27,6 +25,12 @@ struct instruction_t {
     u8 n;
     u8 x;
     u8 y;
+};
+
+enum extension_t {
+    CHIP8,
+    SUPERCHIP,
+    XOCHIP,
 };
 
 struct chip8_t {
@@ -47,6 +51,7 @@ struct chip8_t {
     
     char *rom_name;
     size_t rom_size;
+    b32 draw;
 };
 
 internal b32
@@ -107,9 +112,10 @@ chip8_initialize(chip8_t *chip8, char *rom_name) {
 }
 
 internal void
-chip8_emulate(chip8_t *chip8) {
-    chip8->inst.opcode = (chip8->memory[chip8->pc] << 8 | chip8->memory[chip8->pc + 1]);
+chip8_emulate(chip8_t *chip8, extension_t extension) {
+    b32 carry;
     
+    chip8->inst.opcode = (chip8->memory[chip8->pc] << 8 | chip8->memory[chip8->pc + 1]);
     print("addr: 0x%04X, opcode: 0x%04X, desc: ", chip8->pc, chip8->inst.opcode);
     chip8->pc += 2;
 
@@ -121,230 +127,259 @@ chip8_emulate(chip8_t *chip8) {
 
     switch ((chip8->inst.opcode >> 12) & 0x0F) {
         case 0x00: {
-            // NOTE(xkazu0x): 0x00E0
+            // NOTE(xkazu0x): 0x00NN
             if (chip8->inst.nn == 0xE0) {
+                // NOTE(xkazu0x): 0x00E0
                 print("clear screen\n");
+                
                 memset(&chip8->display[0], false, sizeof(chip8->display));
-            }
-            // NOTE(xkazu0x): 0x00EE
-            else if (chip8->inst.nn == 0xEE) {
+                chip8->draw = true;
+            } else if (chip8->inst.nn == 0xEE) {
+                // NOTE(xkazu0x): 0x00EE
                 print("return from subroutine to address 0x%04X\n", *(chip8->stack_ptr - 1));
+                
                 chip8->pc = *--chip8->stack_ptr;
-            }
-            // NOTE(xkazu0x): 0x0NNN
-            else {
-                // TODO(xkazu0x): calls machine code routine at address NNN
+            } else {
+                // NOTE(xkazu0x): 0x0NNN
+                // NOTE(xkazu0x): calls machine code routine at address NNN
             }
         } break;
         
-        // NOTE(xkazu0x): 0x1NNN
         case 0x01: {
+            // NOTE(xkazu0x): 0x1NNN
             print("[jump] PC = NNN (0x%04X)\n", chip8->inst.nnn);
+            
             chip8->pc = chip8->inst.nnn;
         } break;
         
-        // NOTE(xkazu0x): 0x2NNN
         case 0x02: {
+            // NOTE(xkazu0x): 0x2NNN
             print("call subroutine at NNN (0x%04X)\n", chip8->inst.nnn);
+            
             *chip8->stack_ptr++ = chip8->pc;
             chip8->pc = chip8->inst.nnn;
         } break;
         
-        // NOTE(xkazu0x): 0x3XNN
         case 0x03: {
+            // NOTE(xkazu0x): 0x3XNN
             print("if V%X (0x%02X) == NN (0x%02X), skip the next instrunction\n",
                   chip8->inst.x, chip8->v[chip8->inst.x], chip8->inst.nn);
+            
             if (chip8->v[chip8->inst.x] == chip8->inst.nn) {
                 chip8->pc += 2;
             }
         } break;
         
-        // NOTE(xkazu0x): 0x4XNN
         case 0x04: {
+            // NOTE(xkazu0x): 0x4XNN
             print("if V%X (0x%02X) != NN (0x%02X), skip the next instrunction\n",
                   chip8->inst.x, chip8->v[chip8->inst.x], chip8->inst.nn);
+            
             if (chip8->v[chip8->inst.x] != chip8->inst.nn) {
                 chip8->pc += 2;
             }
         } break;
         
-        // NOTE(xkazu0x): 0x5XY0
         case 0x05: {
-            if (chip8->inst.n != 0) break; // NOTE(xkazu0x): wrong opcode
-            
+            // NOTE(xkazu0x): 0x5XY0
             print("if V%X (0x%02X) == V%X (0x%02X), skip the next instrunction\n",
                   chip8->inst.x, chip8->v[chip8->inst.x],
                   chip8->inst.y, chip8->v[chip8->inst.y]);
+            
+            if (chip8->inst.n != 0) break; // NOTE(xkazu0x): wrong opcode
+            
             if (chip8->v[chip8->inst.x] == chip8->v[chip8->inst.y]) {
                 chip8->pc += 2;
             }
         } break;
         
-        // NOTE(xkazu0x): 0x6XNN
         case 0x06: {
+            // NOTE(xkazu0x): 0x6XNN
             print("V%X = NN (0x%02X)\n", chip8->inst.x, chip8->inst.nn);
+            
             chip8->v[chip8->inst.x] = chip8->inst.nn;
         } break;
         
-        // NOTE(xkazu0x): 0x7XNN
         case 0x07: {
+            // NOTE(xkazu0x): 0x7XNN
             print("V%X (0x%02X) += NN (0x%02X) => V%X (0x%02X)\n",
                   chip8->inst.x, chip8->v[chip8->inst.x], chip8->inst.nn,
                   chip8->inst.x, chip8->v[chip8->inst.x] + chip8->inst.nn);
+            
             chip8->v[chip8->inst.x] += chip8->inst.nn;
         } break;
 
-        // NOTE(xkzu0x): 0x8XYN
         case 0x08: {
+            // NOTE(xkzu0x): 0x8XYN
             switch (chip8->inst.n) {
                 // NOTE(xkzu0x): 0x8XY0
                 case 0: {
                     print("V%X = V%X (0x%02X)\n",
                           chip8->inst.x, chip8->inst.y, chip8->v[chip8->inst.y]);
+                    
                     chip8->v[chip8->inst.x] = chip8->v[chip8->inst.y];
                 } break;
 
-                // NOTE(xkzu0x): 0x8XY1
                 case 1: {
+                    // NOTE(xkzu0x): 0x8XY1
                     print("V%X (0x%02X) |= V%X (0x%02X); result: 0x%02X\n",
                           chip8->inst.x, chip8->v[chip8->inst.x],
                           chip8->inst.y, chip8->v[chip8->inst.y],
                           chip8->v[chip8->inst.x] | chip8->v[chip8->inst.y]);
+                    
                     chip8->v[chip8->inst.x] |= chip8->v[chip8->inst.y];
+                    if (extension == CHIP8) {
+                        chip8->v[0xF] = 0;
+                    }
                 } break;
                 
-                // NOTE(xkzu0x): 0x8XY2
                 case 2: {
+                    // NOTE(xkzu0x): 0x8XY2
                     print("V%X (0x%02X) &= V%X (0x%02X); result: 0x%02X\n",
                           chip8->inst.x, chip8->v[chip8->inst.x],
                           chip8->inst.y, chip8->v[chip8->inst.y],
                           chip8->v[chip8->inst.x] & chip8->v[chip8->inst.y]);
+                    
                     chip8->v[chip8->inst.x] &= chip8->v[chip8->inst.y];
+                    if (extension == CHIP8) {
+                        chip8->v[0xF] = 0;
+                    }
                 } break;
                 
-                // NOTE(xkzu0x): 0x8XY3
                 case 3: {
+                    // NOTE(xkzu0x): 0x8XY3
                     print("V%X (0x%02X) ^= V%X (0x%02X); result: 0x%02X\n",
                           chip8->inst.x, chip8->v[chip8->inst.x],
                           chip8->inst.y, chip8->v[chip8->inst.y],
                           chip8->v[chip8->inst.x] ^ chip8->v[chip8->inst.y]);
+                    
                     chip8->v[chip8->inst.x] ^= chip8->v[chip8->inst.y];
+                    if (extension == CHIP8) {
+                        chip8->v[0xF] = 0;
+                    }
                 } break;
                 
-                // NOTE(xkzu0x): 0x8XY4
                 case 4: {
+                    // NOTE(xkzu0x): 0x8XY4
                     print("V%X (0x%02X) += V%X (0x%02X), VF = 1 if overflow; result: 0x%02X",
                           chip8->inst.x, chip8->v[chip8->inst.x],
                           chip8->inst.y, chip8->v[chip8->inst.y],
-                          chip8->v[chip8->inst.x] + chip8->v[chip8->inst.y])
+                          chip8->v[chip8->inst.x] + chip8->v[chip8->inst.y]);
                         
-                        if ((u16)(chip8->v[chip8->inst.x] + chip8->v[chip8->inst.y]) > u8_max) {
-                            chip8->v[0xF] = 1;
-                        } else {
-                            chip8->v[0xF] = 0;
-                        }
+                    carry = ((u16)(chip8->v[chip8->inst.x] + chip8->v[chip8->inst.y]) > u8_max);
                     chip8->v[chip8->inst.x] += chip8->v[chip8->inst.y];
+                    chip8->v[0xF] = carry;
                     
                     print(", VF = %X\n", chip8->v[0xF]);
                 } break;
                 
-                // NOTE(xkzu0x): 0x8XY5
                 case 5: {
+                    // NOTE(xkzu0x): 0x8XY5
                     print("V%X (0x%02X) -= V%X (0x%02X), VF = 0 if underflow; result: 0x%02X",
                           chip8->inst.x, chip8->v[chip8->inst.y],
                           chip8->inst.y, chip8->v[chip8->inst.y],
                           chip8->v[chip8->inst.x] - chip8->v[chip8->inst.y]);
                     
-                    if (chip8->v[chip8->inst.x] >= chip8->v[chip8->inst.y]) {
-                        chip8->v[0xF] = 1;
-                    } else {
-                        chip8->v[0xF] = 0;
-                    }
+                    carry = (chip8->v[chip8->inst.y] >= chip8->v[chip8->inst.x]);
                     chip8->v[chip8->inst.x] -= chip8->v[chip8->inst.y];
+                    chip8->v[0xF] = carry;
 
                     print(", VF = %X\n", chip8->v[0xF]);
                 } break;
                 
-                // NOTE(xkzu0x): 0x8XY6
                 case 6: {
+                    // NOTE(xkzu0x): 0x8XY6
                     print("set V%X (0x%02X) >>= 1, VF = shifted off bit (%X); result: 0x%02X\n",
                           chip8->inst.x, chip8->v[chip8->inst.x],
                           chip8->v[chip8->inst.x] & 1,
                           chip8->v[chip8->inst.x] >> 1);
+
+                    if (extension == CHIP8) {
+                        carry = chip8->v[chip8->inst.y] & 1;
+                        chip8->v[chip8->inst.x] = chip8->v[chip8->inst.y] >> 1;
+                    } else {
+                        carry = chip8->v[chip8->inst.x] & 1;
+                        chip8->v[chip8->inst.x] >>= 1;
+                    }
                     
-                    chip8->v[0xF] = chip8->v[chip8->inst.x] & 1;
-                    chip8->v[chip8->inst.x] >>= 1;
+                    chip8->v[0xF] = carry;
                 } break;
                 
-                // NOTE(xkzu0x): 0x8XY7
                 case 7: {
+                    // NOTE(xkzu0x): 0x8XY7
                     print("set V%X = V%X (0x%02X) - V%X (0x%02X), VF = 0 if underflow; result: 0x%02X",
                           chip8->inst.x,
                           chip8->inst.y, chip8->v[chip8->inst.y],
                           chip8->inst.x, chip8->v[chip8->inst.x],
                           chip8->v[chip8->inst.y] - chip8->v[chip8->inst.x]);
                         
-                    if (chip8->v[chip8->inst.y] >= chip8->v[chip8->inst.x])
-                    {
-                        chip8->v[0xF] = 1;
-                    } else {
-                        chip8->v[0xF] = 0;
-                    }
+                    carry = (chip8->v[chip8->inst.x] <= chip8->v[chip8->inst.y]);
                     chip8->v[chip8->inst.x] = chip8->v[chip8->inst.y] - chip8->v[chip8->inst.x];
+                    chip8->v[0xF] = carry;
 
                     print(", VF = %X\n", chip8->v[0xF]);
                 } break;
 
-                // NOTE(xkzu0x): 0x8XYE
                 case 0xE: {
+                    // NOTE(xkzu0x): 0x8XYE
                     print("set V%X (0x%02X) <<= 1, VF = shifted off bit (%X); result: 0x%02X\n",
                           chip8->inst.x, chip8->v[chip8->inst.x],
                           (chip8->v[chip8->inst.x] & 0x80) >> 7,
                           chip8->v[chip8->inst.x] << 1);
-                    
-                    chip8->v[0xF] = (chip8->v[chip8->inst.x] & 0x80) >> 7;
-                    chip8->v[chip8->inst.x] <<= 1;
+
+                    if (extension == CHIP8) {
+                        carry = (chip8->v[chip8->inst.y] & 0x80) >> 7;
+                        chip8->v[chip8->inst.x] = chip8->v[chip8->inst.y] << 1;
+                    } else {
+                        carry = (chip8->v[chip8->inst.x] & 0x80) >> 7;
+                        chip8->v[chip8->inst.x] <<= 1;
+                    }
+
+                    chip8->v[0xF] = carry;
                 } break;
                 
                 default: {
-                    // NOTE(xkazu0x): unimplemented/wrong
+                    // NOTE(xkazu0x): unimplemented/wrong opcode
                 } break;
             }
         } break;
 
-        // NOTE(xkazu0x): 0x9XY0
         case 0x09: {
-            if (chip8->inst.n != 0) break; // NOTE(xkazu0x): wrong opcode
-
+            // NOTE(xkazu0x): 0x9XY0
             print("if V%X (0x%02X) != V%X (0x%02X), skip the next instruction\n",
                   chip8->inst.x, chip8->v[chip8->inst.x],
                   chip8->inst.y, chip8->v[chip8->inst.y]);
+
             if (chip8->v[chip8->inst.x] != chip8->v[chip8->inst.y]) {
                 chip8->pc += 2;
             }
         } break;
         
-        // NOTE(xkazu0x): 0xANNN
         case 0x0A: {
+            // NOTE(xkazu0x): 0xANNN
             print("I = NNN (0x%04X)\n", chip8->inst.nnn);
+            
             chip8->i = chip8->inst.nnn;
         } break;
 
         case 0x0B: {
+            // NOTE(xkazu0x): 0xBNNN
             print("[jump] PC = NNN (0x%04X) + V0 (0x%04X); result: (0x%04X)\n",
                   chip8->inst.nnn, chip8->v[0],
                   chip8->v[0] + chip8->inst.nnn);
+            
             chip8->pc = chip8->v[0] + chip8->inst.nnn;
         } break;
 
-        // NOTE(xkazu0x): 0xCXNN
         case 0x0C: {
+            // NOTE(xkazu0x): 0xCXNN
             print("V%X = (rand() % 256) & NN (0x%02X)\n", chip8->inst.x, chip8->inst.nn);
+            
             chip8->v[chip8->inst.x] = (rand() % 256) & chip8->inst.nn;
         } break;
         
-        // NOTE(xkazu0x): 0xDXYN
         case 0x0D: {
+            // NOTE(xkazu0x): 0xDXYN
             print("from I (0x%04X) draw N (%u) at V%X (0x%02X) V%X (0x%02X)\n",
                   chip8->i, chip8->inst.n,
                   chip8->inst.x, chip8->v[chip8->inst.x],
@@ -352,7 +387,6 @@ chip8_emulate(chip8_t *chip8) {
             
             u8 coord_x = chip8->v[chip8->inst.x] % RENDER_WIDTH;
             u8 coord_y = chip8->v[chip8->inst.y] % RENDER_HEIGHT;
-
             u8 orig_x = coord_x;
                 
             chip8->v[0xF] = 0; // initialize carry flag to 0
@@ -383,23 +417,25 @@ chip8_emulate(chip8_t *chip8) {
                 }
                 if (++coord_y >= RENDER_HEIGHT) break;
             }
+            chip8->draw = true;
         } break;
         
         case 0x0E: {
-            // NOTE(xkazu0x): 0xEX9E
             if (chip8->inst.nn == 0x9E) {
+                // NOTE(xkazu0x): 0xEX9E
                 print("if key (%d) in V%X (0x%02X) is pressed, skip to the next instruction\n",
                       chip8->keypad[chip8->v[chip8->inst.x]],
                       chip8->inst.x, chip8->v[chip8->inst.x]);
+                
                 if (chip8->keypad[chip8->v[chip8->inst.x]]) {
                     chip8->pc += 2;
                 }
-            }
-            // NOTE(xkazu0x): 0xEXA1
-            else if (chip8->inst.nn == 0xA1) {
+            } else if (chip8->inst.nn == 0xA1) {
+                // NOTE(xkazu0x): 0xEXA1
                 print("if key (%d) in V%X (0x%02X) is not pressed, skip to the next instruction\n",
                       chip8->keypad[chip8->v[chip8->inst.x]],
                       chip8->inst.x, chip8->v[chip8->inst.x]);
+                
                 if (!chip8->keypad[chip8->v[chip8->inst.x]]) {
                     chip8->pc += 2;
                 }
@@ -407,69 +443,86 @@ chip8_emulate(chip8_t *chip8) {
         } break;
             
         case 0x0F: {
-            switch (chip8->inst.nn) {
-                // NOTE(xkazu0x): 0xFX07
-                case 0x07: {
-                    print("V%X = delay timer\n", chip8->inst.x, chip8->delay_timer);
-                    chip8->v[chip8->inst.x] = chip8->delay_timer;
-                } break;
-                
+            switch (chip8->inst.nn) {                
                 // NOTE(xkazu0x): 0xFX0A
                 case 0x0A: {
                     print("await until a key is pressed; store key in V%X\n", chip8->inst.x);
-                    b32 key_pressed = false;
-                    while (!key_pressed) {
-                        for (u32 key_index = 0;
-                             key_index < ARRAY_COUNT(chip8->keypad);
-                             ++key_index) {
-                            if (chip8->keypad[key_index]) {
-                                chip8->v[chip8->inst.x] = chip8->keypad[key_index];
-                                key_pressed = true;
-                                break;
-                            }
+                    
+                    local b32 key_pressed = false;
+                    local u8 key = 0xFF;
+                    
+                    for (u32 key_index = 0;
+                         (key == 0xFF) && (key_index < ARRAY_COUNT(chip8->keypad));
+                         ++key_index) {
+                        if (chip8->keypad[key_index]) {
+                            key = key_index;
+                            key_pressed = true;
+                            break;
                         }
+                    }
 
-                        // TODO(xkazu0x):
-                        // if (!key_pressed) chip8->pc -= 2;
+                    if (!key_pressed) {
+                        chip8->pc -= 2;
+                    } else {
+                        // NOTE(xkazu0x) "busy loop" chip8 emulation until key is released
+                        if (chip8->keypad[key]) {
+                            chip8->pc -= 2;
+                        } else {
+                            chip8->v[chip8->inst.x] = key;
+                            key = 0xFF;
+                            key_pressed = false;
+                        }
                     }
                 } break;
                     
-                // NOTE(xkazu0x): 0xFX15
-                case 0x15: {
-                    print("delay timer = V%X (0x%02X)\n",
-                          chip8->inst.x, chip8->v[chip8->inst.x]);
-                    chip8->delay_timer = chip8->v[chip8->inst.x];
-                } break;
-                    
-                // NOTE(xkazu0x): 0xFX18
-                case 0x18: {
-                    print("sound timer = V%X (0x%02X)\n",
-                          chip8->inst.x, chip8->v[chip8->inst.x]);
-                    chip8->sound_timer = chip8->v[chip8->inst.x];
-                } break;
-                    
-                // NOTE(xkazu0x): 0xFX1E
                 case 0x1E: {
+                    // NOTE(xkazu0x): 0xFX1E
                     print("I (0x%04X) += V%X (0x%02X); result: (0x%04X)\n",
                           chip8->i, chip8->v[chip8->inst.x],
                           chip8->i + chip8->v[chip8->inst.x]);
-                    chip8->i += chip8->v[chip8->inst.x];
-                 } break;
                     
-                // NOTE(xkazu0x): 0xFX29
+                    chip8->i += chip8->v[chip8->inst.x];
+                } break;
+                    
+                case 0x07: {
+                    // NOTE(xkazu0x): 0xFX07
+                    print("V%X = delay timer\n", chip8->inst.x, chip8->delay_timer);
+                    
+                    chip8->v[chip8->inst.x] = chip8->delay_timer;
+                } break;
+
+                case 0x15: {
+                    // NOTE(xkazu0x): 0xFX15
+                    print("delay timer = V%X (0x%02X)\n",
+                          chip8->inst.x, chip8->v[chip8->inst.x]);
+                    
+                    chip8->delay_timer = chip8->v[chip8->inst.x];
+                } break;
+                    
+                case 0x18: {
+                    // NOTE(xkazu0x): 0xFX18
+                    print("sound timer = V%X (0x%02X)\n",
+                          chip8->inst.x, chip8->v[chip8->inst.x]);
+                    
+                    chip8->sound_timer = chip8->v[chip8->inst.x];
+                } break;
+                    
                 case 0x29: {
+                    // NOTE(xkazu0x): 0xFX29
                     print("set I to sprite location in memory for character in V%X (0x%02X); result(V%X) = (0x%02X)\n",
                           chip8->inst.x, chip8->v[chip8->inst.x],
                           chip8->inst.x, chip8->v[chip8->inst.x]*5);
+                    
                     chip8->i = chip8->v[chip8->inst.x]*5;
                 } break;
                     
-                // NOTE(xkazu0x): 0xFX33
                 case 0x33: {
+                    // NOTE(xkazu0x): 0xFX33
                     // NOTE(xkazu0x): store BCD representation of VX at memory offset from I
                     // I = hundred's place, I+1 = ten's place, I+2 = one's place
                     print("store BCD of V%X (0x%02X) at memory from I (0x%04X)\n",
                           chip8->inst.x, chip8->v[chip8->inst.x], chip8->i);
+                    
                     u8 bcd = chip8->v[chip8->inst.x];
                     chip8->memory[chip8->i + 2] = (bcd % 10);
                     bcd /= 10;
@@ -478,27 +531,37 @@ chip8_emulate(chip8_t *chip8) {
                     chip8->memory[chip8->i] = bcd;
                 } break;
                     
-                // NOTE(xkazu0x): 0xFX55
                 case 0x55: {
+                    // NOTE(xkazu0x): 0xFX55
                     // NOTE(xkazu0x): register dum V0-VX inclusive to memory offset from I;
                     // SCHIP does not increment I, CHIP8 does increment I
                     print("register dump V0-V%X (0x%02X) inclusive at memory from I (0x%04X)\n",
                           chip8->inst.x, chip8->v[chip8->inst.x], chip8->i);
+                    
                     for (u8 register_index = 0;
                          register_index <= chip8->inst.x;
                          ++register_index) {
-                        chip8->memory[chip8->i + register_index] = chip8->v[register_index];
+                        if (extension == CHIP8) {
+                            chip8->memory[chip8->i++] = chip8->v[register_index];
+                        } else {
+                            chip8->memory[chip8->i + register_index] = chip8->v[register_index];
+                        }
                     }
                 } break;
                     
-                // NOTE(xkazu0x): 0xFX65
                 case 0x65: {
+                    // NOTE(xkazu0x): 0xFX65
                     print("register load V0-V%X (0x%02X) inclusive at memory from I (0x%04X)\n",
                           chip8->inst.x, chip8->v[chip8->inst.x], chip8->i);
+                    
                     for (u8 register_index = 0;
                          register_index <= chip8->inst.x;
                          ++register_index) {
-                        chip8->v[register_index] = chip8->memory[chip8->i + register_index];
+                        if (extension == CHIP8) {
+                            chip8->v[register_index] = chip8->memory[chip8->i++];
+                        } else {
+                            chip8->v[register_index] = chip8->memory[chip8->i + register_index];
+                        }
                     }
                 } break;
                     
@@ -510,7 +573,7 @@ chip8_emulate(chip8_t *chip8) {
             
         default: {
             print("unimplemented opcode\n");
-        }
+        } break;
     }
 }
 
@@ -522,26 +585,40 @@ chip8_update_keypad(chip8_t *chip8, input_t *input) {
     // 4 5 6 D        Q W E R
     // 7 8 9 E        A S D F
     // A 0 B F        Z X C V
+    
+    chip8->keypad[0x1] = input->keyboard[KEY_1].down;
+    chip8->keypad[0x2] = input->keyboard[KEY_2].down;
+    chip8->keypad[0x3] = input->keyboard[KEY_3].down;
+    chip8->keypad[0xC] = input->keyboard[KEY_4].down;
+    
+    chip8->keypad[0x4] = input->keyboard[KEY_Q].down;
+    chip8->keypad[0x5] = input->keyboard[KEY_W].down;
+    chip8->keypad[0x6] = input->keyboard[KEY_E].down;
+    chip8->keypad[0xD] = input->keyboard[KEY_R].down;
+    
+    chip8->keypad[0x7] = input->keyboard[KEY_A].down;
+    chip8->keypad[0x8] = input->keyboard[KEY_S].down;
+    chip8->keypad[0x9] = input->keyboard[KEY_D].down;
+    chip8->keypad[0xE] = input->keyboard[KEY_F].down;
+    
+    chip8->keypad[0xA] = input->keyboard[KEY_Z].down;
+    chip8->keypad[0x0] = input->keyboard[KEY_X].down;
+    chip8->keypad[0xB] = input->keyboard[KEY_C].down;
+    chip8->keypad[0xF] = input->keyboard[KEY_V].down;
+}
 
-    chip8->keypad[0x1] = input->keyboard[KEY_1].pressed;
-    chip8->keypad[0x2] = input->keyboard[KEY_2].pressed;
-    chip8->keypad[0x3] = input->keyboard[KEY_3].pressed;
-    chip8->keypad[0xC] = input->keyboard[KEY_4].pressed;
+internal void
+chip8_update_timers(chip8_t *chip8) {
+    if (chip8->delay_timer > 0) {
+        chip8->delay_timer--;
+    }
     
-    chip8->keypad[0x4] = input->keyboard[KEY_Q].pressed;
-    chip8->keypad[0x5] = input->keyboard[KEY_W].pressed;
-    chip8->keypad[0x6] = input->keyboard[KEY_E].pressed;
-    chip8->keypad[0xD] = input->keyboard[KEY_R].pressed;
-    
-    chip8->keypad[0x7] = input->keyboard[KEY_A].pressed;
-    chip8->keypad[0x8] = input->keyboard[KEY_S].pressed;
-    chip8->keypad[0x9] = input->keyboard[KEY_D].pressed;
-    chip8->keypad[0xE] = input->keyboard[KEY_F].pressed;
-    
-    chip8->keypad[0xA] = input->keyboard[KEY_Z].pressed;
-    chip8->keypad[0x0] = input->keyboard[KEY_X].pressed;
-    chip8->keypad[0xB] = input->keyboard[KEY_C].pressed;
-    chip8->keypad[0xF] = input->keyboard[KEY_V].pressed;
+    if (chip8->sound_timer > 0) {
+        chip8->sound_timer--;
+        // TODO(xkazu0x): play sound
+    } else {
+        // TODO(xkazu0x): stop playing the sound
+    }
 }
 
 int main(int argc, char **argv) {
@@ -550,16 +627,24 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
+    extension_t chip_extension = SUPERCHIP;
+    
     chip8_t chip8 = {};
     if (!chip8_initialize(&chip8, argv[1])) {
         exit(EXIT_FAILURE);
     }
-        
+
+    
     window_t window = create_window("chip8 emulator", WINDOW_WIDTH, WINDOW_HEIGHT);
     renderer_t renderer = create_renderer(&window, RENDER_WIDTH, RENDER_HEIGHT);
     input_t input = create_input(&window);
 
+    f32 target_frames_per_second = 1000.0f/60.0f;
+    u32 instructions_per_second = 600; // NOTE(xkazu0x): chip8 cpu "clock rate" or hz
+    
     srand(time(0));
+    
+    renderer_clear(&renderer, make_vec3(0.0f));
     
     b32 pause = false;
     while (!window.should_quit) {
@@ -582,22 +667,42 @@ int main(int argc, char **argv) {
                 print("[unpaused]\n");
             }
         }
-        
-        if (pause) continue;
+
         chip8_update_keypad(&chip8, &input);
-        chip8_emulate(&chip8);
+        if (pause) continue;
+
+        s64 start_time = get_performance_counter();
         
-        for (s32 y = 0; y < renderer.height; ++y) {
-            for (s32 x = 0; x < renderer.width; ++x) {
-                vec3 out_color = make_vec3(0.0f);
-                if (chip8.display[y*renderer.width + x]) {
-                    out_color = make_vec3(1.0f);
-                }
-                renderer_draw_pixel(&renderer, x, y, out_color);
+        for (u32 i = 0; i < instructions_per_second/60; ++i) {
+            chip8_emulate(&chip8, chip_extension);
+
+            if ((chip_extension == CHIP8) &&
+                (chip8.inst.opcode >> 12 == 0xD)) {
+                break;
             }
         }
         
-        renderer_present(&renderer, &window);
+        s64 end_time = get_performance_counter();
+                
+        f64 ms_elapsed = (((f64)(end_time - start_time)*100.0f)/((f64)(get_performance_frequency())));
+        sleep(target_frames_per_second > ms_elapsed ? target_frames_per_second - ms_elapsed : 0);
+
+        if (chip8.draw) {
+            for (s32 y = 0; y < renderer.height; ++y) {
+                for (s32 x = 0; x < renderer.width; ++x) {
+                    vec3 out_color = make_vec3(0.0f);
+                    if (chip8.display[y*renderer.width + x]) {
+                        out_color = make_vec3(1.0f);
+                    }
+                    renderer_draw_pixel(&renderer, x, y, out_color);
+                }
+            }
+
+            renderer_present(&renderer, &window);
+            chip8.draw = false;
+        }
+        
+        chip8_update_timers(&chip8);
     }
 
     destroy_window(&window);
